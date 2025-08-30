@@ -6,6 +6,7 @@ import co.eci.snake.core.Direction;
 import co.eci.snake.core.Position;
 import co.eci.snake.core.Snake;
 import co.eci.snake.core.engine.GameClock;
+import co.eci.snake.core.GameState;
 
 import javax.swing.*;
 import java.awt.*;
@@ -13,6 +14,7 @@ import java.awt.event.ActionEvent;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class SnakeApp extends JFrame {
 
@@ -20,7 +22,9 @@ public final class SnakeApp extends JFrame {
   private final GamePanel gamePanel;
   private final JButton actionButton;
   private final GameClock clock;
-  private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+  private final List<Snake> snakes = new java.util.ArrayList<>();
+  private final AtomicReference<GameState> state = new AtomicReference<>(GameState.STOPPED);
+  private final Object pauseLock = new Object();
 
   public SnakeApp() {
     super("The Snake Race");
@@ -45,10 +49,10 @@ public final class SnakeApp extends JFrame {
     pack();
     setLocationRelativeTo(null);
 
-    this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
+    this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint), state);
 
     var exec = Executors.newVirtualThreadPerTaskExecutor();
-    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board)));
+    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, state, pauseLock)));
 
     actionButton.addActionListener((ActionEvent e) -> togglePause());
 
@@ -132,9 +136,14 @@ public final class SnakeApp extends JFrame {
     if ("Action".equals(actionButton.getText())) {
       actionButton.setText("Resume");
       clock.pause();
+      state.set(GameState.PAUSED);
     } else {
       actionButton.setText("Action");
       clock.resume();
+      state.set(GameState.RUNNING);
+      synchronized (pauseLock) {
+        pauseLock.notifyAll();
+      }
     }
   }
 
