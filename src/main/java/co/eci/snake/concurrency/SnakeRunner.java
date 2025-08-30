@@ -23,20 +23,38 @@ public final class SnakeRunner implements Runnable {
     this.pauseLock = pauseLock;
   }
 
+  private volatile boolean paused = false;
+
+  public synchronized void pauseRunner() {
+    paused = true;
+  }
+
+    public synchronized void resumeRunner() {
+        paused = false;
+        notifyAll();
+    }
+
   @Override
   public void run() {
     try {
       while (!Thread.currentThread().isInterrupted()) {
+
         synchronized (pauseLock) {
           while (state.get() == GameState.PAUSED) {
             pauseLock.wait();
           }
         }
+        synchronized (this) {
+          while (paused) {
+            wait();
+          }
+        }
+
         maybeTurn();
-        var res = board.step(snake);
-        if (res == Board.MoveResult.HIT_OBSTACLE) {
+        var result = board.step(snake);
+        if (result == Board.MoveResult.HIT_OBSTACLE) {
           randomTurn();
-        } else if (res == Board.MoveResult.ATE_TURBO) {
+        } else if (result == Board.MoveResult.ATE_TURBO) {
           turboTicks = 100;
         }
         int sleep = (turboTicks > 0) ? turboSleepMs : baseSleepMs;
@@ -44,10 +62,11 @@ public final class SnakeRunner implements Runnable {
           turboTicks--;
         Thread.sleep(sleep);
       }
-    } catch (InterruptedException ie) {
-      Thread.currentThread().interrupt();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
     }
-  }
+
 
   private void maybeTurn() {
     double p = (turboTicks > 0) ? 0.05 : 0.10;
