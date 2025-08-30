@@ -1,25 +1,35 @@
 package co.eci.snake.ui.legacy;
 
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.event.ActionEvent;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import javax.swing.AbstractAction;
+import javax.swing.ActionMap;
+import javax.swing.InputMap;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JFrame;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+
 import co.eci.snake.concurrency.SnakeRunner;
 import co.eci.snake.core.Board;
 import co.eci.snake.core.Direction;
 import co.eci.snake.core.Position;
 import co.eci.snake.core.Snake;
 import co.eci.snake.core.engine.GameClock;
-import co.eci.snake.core.GameState;
-
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicReference;
-
-import static java.util.Comparator.comparingInt;
 
 public final class SnakeApp extends JFrame {
 
@@ -27,14 +37,9 @@ public final class SnakeApp extends JFrame {
   private final GamePanel gamePanel;
   private final JButton actionButton;
   private final GameClock clock;
-
-  private final List<Snake> snakes = new java.util.ArrayList<>();
-  private final AtomicReference<GameState> state = new AtomicReference<>(GameState.STOPPED);
-  private final Object pauseLock = new Object();
-
   private final List<SnakeRunner> runners = new ArrayList<>();
   private final ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor();
-
+  private final java.util.List<Snake> snakes = new java.util.concurrent.CopyOnWriteArrayList<>();
 
 
   public SnakeApp() {
@@ -60,12 +65,10 @@ public final class SnakeApp extends JFrame {
     pack();
     setLocationRelativeTo(null);
 
-    this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint), state);
+    this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
 
 
-
-
-    snakes.forEach(s -> { var runner = new SnakeRunner(s,board,state,pauseLock);
+    snakes.forEach(s -> { var runner = new SnakeRunner(s, board);
         runner.pauseRunner(); runners.add(runner); exec.submit(runner);
     });
 
@@ -162,18 +165,11 @@ public final class SnakeApp extends JFrame {
       runners.forEach(SnakeRunner::pauseRunner);
       pauseStats();
       clock.pause();
-      state.set(GameState.PAUSED);
-
-
 
     } else {
       actionButton.setText("Pause");
       runners.forEach(SnakeRunner::resumeRunner);
       clock.resume();
-      state.set(GameState.RUNNING);
-      synchronized (pauseLock) {
-        pauseLock.notifyAll();
-      }
     }
   }
   // Show stats of longest and shortest snake when paused
@@ -287,7 +283,7 @@ public final class SnakeApp extends JFrame {
       var snakes = snakesSupplier.get();
       int idx = 0;
       for (Snake s : snakes) {
-        var body = s.snapshot().toArray(new Position[0]);
+        var body = s.snapshot().toArray(Position[]::new);
         for (int i = 0; i < body.length; i++) {
           var p = body[i];
           Color base = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
