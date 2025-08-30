@@ -6,6 +6,7 @@ import co.eci.snake.core.Direction;
 import co.eci.snake.core.Position;
 import co.eci.snake.core.Snake;
 import co.eci.snake.core.engine.GameClock;
+import co.eci.snake.core.GameState;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Comparator.comparingInt;
 
@@ -25,9 +27,15 @@ public final class SnakeApp extends JFrame {
   private final GamePanel gamePanel;
   private final JButton actionButton;
   private final GameClock clock;
+
+  private final List<Snake> snakes = new java.util.ArrayList<>();
+  private final AtomicReference<GameState> state = new AtomicReference<>(GameState.STOPPED);
+  private final Object pauseLock = new Object();
+
   private final List<SnakeRunner> runners = new ArrayList<>();
   private final ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor();
   private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+
 
   public SnakeApp() {
     super("The Snake Race");
@@ -52,7 +60,9 @@ public final class SnakeApp extends JFrame {
     pack();
     setLocationRelativeTo(null);
 
-    this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
+    this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint), state);
+
+
 
 
     snakes.forEach(s -> { var runner = new SnakeRunner(s, board);
@@ -152,11 +162,18 @@ public final class SnakeApp extends JFrame {
       runners.forEach(SnakeRunner::pauseRunner);
       pauseStats();
       clock.pause();
+      state.set(GameState.PAUSED);
+
+
 
     } else {
       actionButton.setText("Pause");
       runners.forEach(SnakeRunner::resumeRunner);
       clock.resume();
+      state.set(GameState.RUNNING);
+      synchronized (pauseLock) {
+        pauseLock.notifyAll();
+      }
     }
   }
   // Show stats of longest and shortest snake when paused
