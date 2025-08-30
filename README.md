@@ -92,6 +92,104 @@ co.eci.snake
   - La **peor serpiente** (la que **primero murió**).
 - Considera que la suspensión **no es instantánea**; coordina para que el estado mostrado no quede “a medias”.
 
+## Desarrollo parte III:
+
+Para garantizar un control seguro desde la interfaz gráfica, se implementó la lógica de **Iniciar / Pausar / Reanudar** dentro del botón existente `actionButton`.
+
+El funcionamiento es el siguiente:
+
+1. **Iniciar**
+    - El juego comienza al presionar el botón `Start`, que inmediatamente cambia a `Pause`.
+    - Se activa el `GameClock` y se inicializan los hilos de cada serpiente (`SnakeRunner`).
+
+2. **Pausar**
+    - Al presionar el botón en estado `Pause`, este cambia a `Resume`.
+    - Se detiene el `GameClock` y se suspenden controladamente todos los hilos de las serpientes (`pauseRunner()`), evitando que la animación continúe en segundo plano.
+    - En este punto se llama al método `showStats()`, que despliega:
+        - La serpiente más larga (viva en ese momento).
+        - La serpiente más corta (adaptación al no existir la lógica de “muerte”).
+    - Para evitar inconsistencias visuales (*tearing*), el estado se captura únicamente cuando tanto el `GameClock` como los *runners* están completamente detenidos.
+
+3. **Reanudar**
+    - Al presionar el botón en estado `Resume`, este vuelve a `Pause`.
+    - Se reanuda el `GameClock` y los hilos de las serpientes (`resumeRunner()`), continuando el juego desde el mismo estado.
+
+---
+
+### Fragmento de código modificado
+
+- togglePause() :
+```java
+  private void togglePause() {
+    if (!started) {
+        actionButton.setText("Pause");
+        clock.start();
+        runners.forEach(SnakeRunner::resumeRunner);
+        started = true;
+    }
+    else if ("Pause".equals(actionButton.getText())) {
+        actionButton.setText("Resume");
+        runners.forEach(SnakeRunner::pauseRunner);
+        pauseStats();
+        clock.pause();
+
+    } else {
+        actionButton.setText("Pause");
+        runners.forEach(SnakeRunner::resumeRunner);
+        clock.resume();
+    }
+}
+```
+- Metodo run() de SnakeRunner:
+```java
+@Override
+  public void run() {
+    try {
+      while (!Thread.currentThread().isInterrupted()) {
+        synchronized (this) {
+          while (paused) {
+            wait();
+          }
+        }
+
+        maybeTurn();
+        var result = board.step(snake);
+        if (result == Board.MoveResult.HIT_OBSTACLE) {
+          randomTurn();
+        } else if (result == Board.MoveResult.ATE_TURBO) {
+          turboTicks = 100;
+        }
+        int sleep = (turboTicks > 0) ? turboSleepMs : baseSleepMs;
+        if (turboTicks > 0) turboTicks--;
+        Thread.sleep(sleep);
+      }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+```
+- pauseStats() :
+```java
+  private void pauseStats() {
+    Snake longest = null;
+    Snake shortest = null;
+
+    for (SnakeRunner runner : runners) {
+      Snake snake = runner.getSnake();
+      if (longest == null || snake.getLength() > longest.getLength()) {
+        longest = snake;
+      }
+      if (shortest == null || snake.getLength() < shortest.getLength()) {
+        shortest = snake;
+      }
+    }
+
+    String message = String.format("Longest snake: %s (length: %d)\nShortest snake: %s (length: %d)",
+            longest.getName(), longest.getLength(),
+            shortest.getName(), shortest.getLength());
+    JOptionPane.showMessageDialog(frame, message, "Game Stats", JOptionPane.INFORMATION_MESSAGE);
+  }
+  ```
 ### 4) Robustez bajo carga
 
 - Ejecuta con **N alto** (`-Dsnakes=20` o más) y/o aumenta la velocidad.
