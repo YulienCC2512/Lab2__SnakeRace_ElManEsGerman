@@ -34,7 +34,7 @@ public final class SnakeApp extends JFrame {
 
   private final List<SnakeRunner> runners = new ArrayList<>();
   private final ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor();
-  private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+
 
 
   public SnakeApp() {
@@ -65,7 +65,7 @@ public final class SnakeApp extends JFrame {
 
 
 
-    snakes.forEach(s -> { var runner = new SnakeRunner(s, board);
+    snakes.forEach(s -> { var runner = new SnakeRunner(s,board,state,pauseLock);
         runner.pauseRunner(); runners.add(runner); exec.submit(runner);
     });
 
