@@ -1,81 +1,68 @@
 package co.eci.snake.concurrency;
 
+
+
 import co.eci.snake.core.Board;
 import co.eci.snake.core.Direction;
+import co.eci.snake.core.Position;
 import co.eci.snake.core.Snake;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicReference;
-import co.eci.snake.core.GameState;
 
-public final class SnakeRunner implements Runnable {
-  private final Snake snake;
-  private final Board board;
-  private final int baseSleepMs = 80;
-  private final int turboSleepMs = 40;
-  private int turboTicks = 0;
-  private final AtomicReference<GameState> state;
-  private final Object pauseLock;
 
-  public SnakeRunner(Snake snake, Board board, AtomicReference<GameState> state, Object pauseLock) {
-    this.snake = snake;
-    this.board = board;
-    this.state = state;
-    this.pauseLock = pauseLock;
-  }
+public class SnakeRunner implements Runnable {
 
-  private volatile boolean paused = false;
+    private final Snake snake;
+    private final Board board;
 
-  public synchronized void pauseRunner() {
-    paused = true;
-  }
+    // flags de control
+    private volatile boolean paused = false;
+    private volatile boolean running = true;
 
-    public synchronized void resumeRunner() {
+    public SnakeRunner(Snake snake, Board board) {
+        this.snake = snake;
+        this.board = board;
+    }
+
+    @Override
+    public void run() {
+        // bucle principal del runner: avanza la snake periódicamente
+        while (running) {
+            if (!paused) {
+          
+                Position head = snake.head();
+                Direction dir = snake.direction();
+                int nx = head.x();
+                int ny = head.y();
+
+                if (dir == Direction.UP)    ny--;
+                else if (dir == Direction.DOWN)  ny++;
+                else if (dir == Direction.LEFT)  nx--;
+                else if (dir == Direction.RIGHT) nx++;
+
+                Position newHead = new Position(nx, ny);
+                boolean grow = board.mice().contains(newHead);
+                snake.advance(newHead, grow);
+                if (grow) board.mice().remove(newHead);
+
+            }
+            try {
+                Thread.sleep(150); // velocidad configurable
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+    }
+
+    // control por instancia (SnakeApp usa referencia a cada runner)
+    public void pauseRunner() {
+        paused = true;
+    }
+
+    public void resumeRunner() {
         paused = false;
-        notifyAll();
     }
 
-  @Override
-  public void run() {
-    try {
-      while (!Thread.currentThread().isInterrupted()) {
-
-        synchronized (pauseLock) {
-          while (state.get() == GameState.PAUSED) {
-            pauseLock.wait();
-          }
-        }
-        synchronized (this) {
-          while (paused) {
-            wait();
-          }
-        }
-
-        maybeTurn();
-        var result = board.step(snake);
-        if (result == Board.MoveResult.HIT_OBSTACLE) {
-          randomTurn();
-        } else if (result == Board.MoveResult.ATE_TURBO) {
-          turboTicks = 100;
-        }
-        int sleep = (turboTicks > 0) ? turboSleepMs : baseSleepMs;
-        if (turboTicks > 0)
-          turboTicks--;
-        Thread.sleep(sleep);
-      }
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
+    public void stopRunner() {
+        running = false;
     }
-
-
-  private void maybeTurn() {
-    double p = (turboTicks > 0) ? 0.05 : 0.10;
-    if (ThreadLocalRandom.current().nextDouble() < p)
-      randomTurn();
-  }
-
-  private void randomTurn() {
-    var dirs = Direction.values();
-    snake.turn(dirs[ThreadLocalRandom.current().nextInt(dirs.length)]);
-  }
 }
