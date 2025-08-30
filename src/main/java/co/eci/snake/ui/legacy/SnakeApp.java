@@ -6,13 +6,20 @@ import co.eci.snake.core.Direction;
 import co.eci.snake.core.Position;
 import co.eci.snake.core.Snake;
 import co.eci.snake.core.engine.GameClock;
+import co.eci.snake.core.GameState;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static java.util.Comparator.comparingInt;
 
 public final class SnakeApp extends JFrame {
 
@@ -20,7 +27,15 @@ public final class SnakeApp extends JFrame {
   private final GamePanel gamePanel;
   private final JButton actionButton;
   private final GameClock clock;
-  private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+
+  private final List<Snake> snakes = new java.util.ArrayList<>();
+  private final AtomicReference<GameState> state = new AtomicReference<>(GameState.STOPPED);
+  private final Object pauseLock = new Object();
+
+  private final List<SnakeRunner> runners = new ArrayList<>();
+  private final ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor();
+
+
 
   public SnakeApp() {
     super("The Snake Race");
@@ -35,7 +50,7 @@ public final class SnakeApp extends JFrame {
     }
 
     this.gamePanel = new GamePanel(board, () -> snakes);
-    this.actionButton = new JButton("Action");
+    this.actionButton = new JButton("Start");
 
     setLayout(new BorderLayout());
     add(gamePanel, BorderLayout.CENTER);
@@ -45,10 +60,14 @@ public final class SnakeApp extends JFrame {
     pack();
     setLocationRelativeTo(null);
 
-    this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
+    this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint), state);
 
-    var exec = Executors.newVirtualThreadPerTaskExecutor();
-    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board)));
+
+
+
+    snakes.forEach(s -> { var runner = new SnakeRunner(s,board,state,pauseLock);
+        runner.pauseRunner(); runners.add(runner); exec.submit(runner);
+    });
 
     actionButton.addActionListener((ActionEvent e) -> togglePause());
 
@@ -125,17 +144,72 @@ public final class SnakeApp extends JFrame {
     }
 
     setVisible(true);
-    clock.start();
   }
 
+  //Modified with a state variable to control start/pause/resume
+
+  private boolean started = false;
+
   private void togglePause() {
-    if ("Action".equals(actionButton.getText())) {
-      actionButton.setText("Resume");
-      clock.pause();
-    } else {
-      actionButton.setText("Action");
-      clock.resume();
+    if (!started) {
+      actionButton.setText("Pause");
+      clock.start();
+      runners.forEach(SnakeRunner::resumeRunner);
+      started = true;
     }
+    else if ("Pause".equals(actionButton.getText())) {
+      actionButton.setText("Resume");
+      runners.forEach(SnakeRunner::pauseRunner);
+      pauseStats();
+      clock.pause();
+      state.set(GameState.PAUSED);
+
+
+
+    } else {
+      actionButton.setText("Pause");
+      runners.forEach(SnakeRunner::resumeRunner);
+      clock.resume();
+      state.set(GameState.RUNNING);
+      synchronized (pauseLock) {
+        pauseLock.notifyAll();
+      }
+    }
+  }
+  // Show stats of longest and shortest snake when paused
+  private void pauseStats(){
+
+    Snake longest = null;
+    Snake shortest = null;
+    int maxLen = Integer.MIN_VALUE;
+    int minLen = Integer.MAX_VALUE;
+
+    for (Snake s : snakes) {
+      int len = s.snapshot().size();
+      if (len > maxLen) {
+        maxLen = len;
+        longest = s;
+      }
+      if (len < minLen) {
+        minLen = len;
+        shortest = s;
+      }
+    }
+
+    String stats = "Paused\n\n";
+    if (longest != null) {
+      stats += "SLongest Snake\n";
+      stats += " -Lenght: " + maxLen + "\n";
+      stats += " -Head: " + longest.head() + "\n\n";
+    }
+    if (shortest != null) {
+      stats += "Worst Snake\n";
+      stats += " -Lenght: " + minLen + "\n";
+      stats += " -Head : " + shortest.head() + "\n";
+    }
+
+    JOptionPane.showMessageDialog(this, stats, "ECurrent stats", JOptionPane.INFORMATION_MESSAGE);
+
   }
 
   public static final class GamePanel extends JPanel {
